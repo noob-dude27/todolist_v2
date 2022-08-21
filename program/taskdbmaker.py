@@ -5,7 +5,7 @@ Tasks and Todo lists instances and tables.
 
 import sqlite3 as sql3
 
-conn = sql3.connect("database/taskdatabase.db")
+conn = sql3.connect("databases/taskdatabase.db")
 cur = conn.cursor()
 
 class Task_DB:
