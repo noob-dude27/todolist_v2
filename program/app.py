@@ -34,10 +34,12 @@ GRAY = "#696969"
 
 # formatted current_date by removing a zero behind a number.
 # example: instead of (11/03/07) it becomes: (11/3/7)
-CURRENT_DATE = datetime.now().strftime('%m/%d/%y').replace('0', '')
+CURRENT_DATE = datetime.now().strftime('%m/%d/%y').replace('0 ', '')
 
 # non 24-hour time format, example: 11:35 AM/PM
 CURRENT_TIME = datetime.now().strftime('%I:%M %p')
+
+task_database_path = "C:/Users/Sony/Desktop/programs/python/Gui/Task Man (todolist_v2)/databases/taskdatabase.db"
 
 def convert_to_bool(value):
     """Convers sqlite booleans (0s or 1s) into True or False."""
@@ -69,7 +71,7 @@ class App(tk.Tk):
         self.todo_list_panel()
         self.task_panel()
         self.get_todo_lists()
-        self.after(0, self.check_task_deadline())
+        self.check_task_deadline()
 
         # Universal Keybinds
         self.bind("<Alt-q>", Todo_list_Maker)
@@ -171,7 +173,7 @@ class App(tk.Tk):
     def get_todo_lists(self):
         """Connects to database then formats data and inserts it to the Task panel."""
         
-        conn = sql3.connect("database/taskdatabase.db")
+        conn = sql3.connect(task_database_path)    
         cur = conn.cursor()
         cur.execute("SELECT * FROM Todo_lists")
         data = cur.fetchall()
@@ -195,7 +197,7 @@ class App(tk.Tk):
             prompt = askyesnocancel("Are you sure?", f"Are you sure you want to remove {selected_todo_list_name} from the list?")
             if prompt:
                 
-                conn = sql3.connect("database/taskdatabase.db")
+                conn = sql3.connect(task_database_path)
                 cur = conn.cursor()
                 
                 cur.execute("SELECT name FROM Tasks WHERE parent IS (?)", [selected_todo_list]) 
@@ -223,7 +225,7 @@ class App(tk.Tk):
         It fetches all relevant Task values from <taskdatabase.db>
         """
         selected_todo_list = self.todo_list_box.get(tk.ANCHOR)
-        conn = sql3.connect("database/taskdatabase.db")
+        conn = sql3.connect(task_database_path)
         cur = conn.cursor()
         
         cur.execute("SELECT * FROM Tasks WHERE parent IS (?)", [selected_todo_list])
@@ -250,14 +252,15 @@ class App(tk.Tk):
             selected_task = self.task_box.focus()
             selected_task_values = self.task_box.item(selected_task, "values")
             selected_task_name = selected_task_values[0]
-
+            
+            task_parent = self.todo_list_box.get(tk.ANCHOR) 
             prompt = askyesnocancel("Are you sure?", f"Are you sure you want to remove {selected_task_name} from the list?")
 
             if prompt:
-                conn = sql3.connect("database/taskdatabase.db")
+                conn = sql3.connect(task_database_path)
                 cur = conn.cursor()
                 
-                cur.execute("DELETE FROM Tasks WHERE name IS (?)", [selected_task_name]) 
+                cur.execute("DELETE FROM Tasks WHERE name IS (?) AND parent is (?)", [selected_task_name, task_parent]) 
                 conn.commit()
                 conn.close()
 
@@ -281,7 +284,7 @@ class App(tk.Tk):
             selected_task_name = selected_task_values[0]
             selected_task_is_completed = eval(selected_task_values[4]) # Converts str to bool.
             
-            conn = sql3.connect("database/taskdatabase.db")
+            conn = sql3.connect(task_database_path)
             cur = conn.cursor()
 
             if not selected_task_is_completed:
@@ -299,11 +302,12 @@ class App(tk.Tk):
 
     def check_task_deadline(self):
         # FIXME: Rings alarm even though the time has not passed yet.
+        # FIXME: 7/10/22, 9:18 PM, This function is not checking for time anymore???? WTF?
         """
         Checks if the tasks are overdue based on their date and time deadlines. If they are late and unfinished, 
         the program will show a warning message with the Task's name and its parent Todo list.
         """
-        conn = sql3.connect("database/taskdatabase.db")
+        conn = sql3.connect(task_database_path)
         cur = conn.cursor()        
         cur.execute("""SELECT * FROM Tasks""")
         tasks = cur.fetchall()
@@ -315,13 +319,16 @@ class App(tk.Tk):
             if not is_completed:   
                 if CURRENT_DATE > deadline_date:
                     showwarning("Missed Task", f"It appears that you've missed: {name} in {parent}")
+                    print("Hello world 1")
                 elif CURRENT_DATE == deadline_date: 
                     # FIXME: considers task as late even if it's ahead of due and deadline time is earlier than current time.
                     current = convert_time(CURRENT_TIME, "%I:%M %p", "%H:%M")
                     converted_deadline_time = convert_time(deadline_time, "%I:%M %p", "%H:%M")
                     
-                    if current >= converted_deadline_time:
+                    if current > converted_deadline_time:
                         showwarning("Missed Task", f"It appears that you've missed: {name} in {parent}")
+
+                    print("Hello world 2")
 
 
 class Todo_list_Maker(tk.Toplevel):
@@ -380,7 +387,7 @@ class Todo_list_Maker(tk.Toplevel):
         name = self.name_entry.get()
         new_todo_list = Todo_list(name, CURRENT_DATE)
 
-        conn = sql3.connect("database/taskdatabase.db")
+        conn = sql3.connect(task_database_path)
         cur = conn.cursor()
 
         cur.execute("INSERT INTO Todo_lists VALUES (?, ?)", [new_todo_list.name, new_todo_list.creation_date])
@@ -389,6 +396,7 @@ class Todo_list_Maker(tk.Toplevel):
 
         app.refresh_todo_lists()
 
+        self.destroy()
         showinfo("Todo list creation complete!", "Todo list created successfully.")
 
 
@@ -470,8 +478,16 @@ class Tasks_Maker(tk.Toplevel):
                     showerror("Empty input", "Fill in all inputs!")
                     counter += 1
                 elif len(widget.get()) >= 0 and counter < 2:
-                    self.validate_deadline_time()
+                    self.has_duplicates()
                     counter += 1
+
+    def has_duplicates(self):
+        """Checks for name duplicates by waiting for sqlite3 to invoke an IntegrityError exception."""
+        name = self.name_entry.get()
+        try: 
+            self.validate_deadline_time()
+        except sql3.IntegrityError:
+            showerror("Duplicate!", f"{name} already exists!")
 
     def validate_deadline_time(self):
         """Checks for valid time input which is (hh/mm am_pm)."""
@@ -496,7 +512,7 @@ class Tasks_Maker(tk.Toplevel):
         deadline_time = self.deadline_time_entry.get()
         new_task = Task(parent, name, creation_date, deadline_date, deadline_time)
         
-        conn = sql3.connect("database/taskdatabase.db")
+        conn = sql3.connect(task_database_path)
         cur = conn.cursor()
         cur.execute("INSERT INTO Tasks VALUES (?, ?, ?, ?, ?, ?)",
         [new_task.parent, new_task.name, new_task.creation_date, new_task.deadline_date, new_task.deadline_time, new_task.is_completed])
@@ -504,6 +520,7 @@ class Tasks_Maker(tk.Toplevel):
         conn.close()
         
         app.refresh_tasks()
+        self.destroy()
         showinfo("Task creation complete!", "Task created successfully.")
 
 
@@ -559,7 +576,7 @@ class Calendar(tk.Toplevel):
         """Selects already existing tasks based on the selected date and shows it in the task_box."""
         selected_date = self.calendar.get_date()
 
-        conn = sql3.connect("database/taskdatabase.db")
+        conn = sql3.connect(task_database_path)
         cur = conn.cursor()
         cur.execute("SELECT * FROM Tasks WHERE deadline_date IS (?)", [selected_date])
 
@@ -659,7 +676,7 @@ class Settings(tk.Toplevel):
         # Configuring title name
         self.options_title_lbl.config(text="Version", font="Verdana 24")
 
-        version = "2"
+        version = "3"
 
         # Widgets
         content_frm = tk.Frame(self.options_frm)
@@ -742,7 +759,6 @@ class Help(tk.Toplevel):
     def go_to_panel(self, event=None):
         """Like Settings.go_to_panel method, this opens the highlighted selection of the user based on what they selected."""
         selected = self.help_box.get(tk.ANCHOR)
-        
         if selected == "About":
             self.help_frm.grid_forget()
             self.help_panel()
@@ -956,3 +972,4 @@ class Help(tk.Toplevel):
 if __name__ == "__main__":
     app = App()
     app.mainloop()
+        
